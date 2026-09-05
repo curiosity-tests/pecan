@@ -1,0 +1,103 @@
+name: sipnet
+
+on:
+  workflow_call:
+    inputs:
+      chalk_on:
+        description: "racecar: instrumented arm switch, passed down by the caller"
+        type: string
+        default: "false"
+      profile:
+        description: "CrashOverride chalk profile"
+        type: string
+        default: curiosity-tests-racecar
+      R-version:
+        required: true
+        type: string
+
+env:
+  # The one variable that separates the arms: on baseline, action-checkout
+  # skips its Set up Chalk step entirely.
+  CHALK_ON: ${{ inputs.chalk_on }}
+  R_LIBS_USER: /usr/local/lib/R/site-library
+  LC_ALL: en_US.UTF-8
+  NCPUS: 2
+  PGHOST: postgres
+  CI: true
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  sipnet:
+    runs-on: ubuntu-latest
+    env:
+      GITHUB_PAT: ${{ secrets.GITHUB_TOKEN }}
+
+    services:
+      postgres:
+        image: mdillon/postgis:9.5
+        options: --health-cmd pg_isready --health-interval 10s --health-timeout 5s --health-retries 5
+
+    container: 
+      image: pecan/depends:develop-R${{ inputs.R-version }}
+
+    steps:
+    # checkout source code
+    - name: Install curl/bash for action-checkout (racecar; ungated, both arms)
+      shell: sh
+      run: |
+        command -v curl >/dev/null 2>&1 && command -v bash >/dev/null 2>&1 && exit 0
+        if command -v apt-get >/dev/null 2>&1; then
+          apt-get update -qq && DEBIAN_FRONTEND=noninteractive apt-get install -y -qq curl ca-certificates bash
+        elif command -v apk >/dev/null 2>&1; then apk add --no-cache curl ca-certificates bash
+        elif command -v dnf >/dev/null 2>&1; then dnf install -y curl ca-certificates bash
+        elif command -v yum >/dev/null 2>&1; then yum install -y curl ca-certificates bash
+        elif command -v zypper >/dev/null 2>&1; then zypper -n install curl ca-certificates bash
+        fi
+
+    - name: work around https://github.com/actions/checkout/issues/766
+      run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
+    - name: Checkout code
+      uses: crashappsec/action-checkout@main
+      with:
+        chalk: ${{ env.CHALK_ON }}
+        profile: ${{ inputs.profile || 'curiosity-tests-racecar' }}
+        observables_continue_on_error: false
+        lfs: false
+        set-safe-directory: false
+
+    # install additional tools needed
+    - name: Assert instrumentation is live
+      if: env.CHALK_ON == 'true'
+      run: |
+        test -n "${CURIOSITY_ROOT:-}" || { echo "::error::CURIOSITY_ROOT unset - observables never installed"; exit 1; }
+        test -S "${CURIOSITY_SOCKET_NAME:?socket name unset}" || { echo "::error::co-hostd socket absent"; exit 1; }
+
+    - name: install utils
+      run: apt-get update && apt-get install -y postgresql-client qpdf
+    - name: install new dependencies
+      run: Rscript scripts/generate_dependencies.R && cd docker/depends && Rscript pecan.depends.R
+
+    # initialize database
+    - name: db setup
+      uses: docker://pecan/db:ci
+    - name: add models to db
+      run: ./scripts/add.models.sh
+
+    # install sipnet
+    - name: Download SIPNET for Linux
+      run: |
+        curl -L -o sipnet-linux "https://github.com/PecanProject/sipnet/releases/download/v1.3.0/sipnet-linux-v1.3.0"
+        chmod +x sipnet-linux
+
+    # compile PEcAn code
+    - name: build
+      run: make -j1
+
+    # run SIPNET test
+    - name: copy met file into working directory
+      run: Rscript -e 'file.copy(system.file("niwot.clim", package = "PEcAn.SIPNET"), "niwot.clim")'
+    - name: integration test
+      run: ./tests/integration.sh ghaction
