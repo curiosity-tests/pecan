@@ -55,7 +55,7 @@ jobs:
           - "4.2"
     uses: ./.github/workflows/test.yml
     with:
-      chalk_on: ${{ github.event_name == 'workflow_dispatch' && inputs.leg != 'baseline' }}
+      chalk_on: ${{ (github.event_name == 'workflow_dispatch' && inputs.leg != 'baseline') && 'true' || 'false' }}
       profile: ${{ inputs.profile || 'curiosity-tests-racecar' }}
       R-version: ${{ matrix.R }}
     secrets: inherit
@@ -71,7 +71,7 @@ jobs:
           - "4.2"
     uses: ./.github/workflows/check.yml
     with:
-      chalk_on: ${{ github.event_name == 'workflow_dispatch' && inputs.leg != 'baseline' }}
+      chalk_on: ${{ (github.event_name == 'workflow_dispatch' && inputs.leg != 'baseline') && 'true' || 'false' }}
       profile: ${{ inputs.profile || 'curiosity-tests-racecar' }}
       R-version: ${{ matrix.R }}
       make-grouping: ${{ matrix.package }}
@@ -87,7 +87,7 @@ jobs:
           - "4.2"
     uses: ./.github/workflows/sipnet.yml
     with:
-      chalk_on: ${{ github.event_name == 'workflow_dispatch' && inputs.leg != 'baseline' }}
+      chalk_on: ${{ (github.event_name == 'workflow_dispatch' && inputs.leg != 'baseline') && 'true' || 'false' }}
       profile: ${{ inputs.profile || 'curiosity-tests-racecar' }}
       R-version: ${{ matrix.R }}
     secrets: inherit
