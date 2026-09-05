@@ -1,0 +1,93 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+      - develop
+    tags:
+      - "v*.*.*"
+  pull_request:
+  merge_group:
+  issue_comment:
+    types:
+      - created
+  workflow_dispatch:
+    inputs:
+      leg:
+        description: "baseline (uninstrumented) or instrumented (under chalk/curiosity)"
+        type: choice
+        options: [instrumented, baseline]
+        default: instrumented
+      profile:
+        description: "CrashOverride chalk profile"
+        type: string
+        default: curiosity-tests-racecar
+      racecar_run:
+        description: "racecar correlation token, echoed into the run name"
+        type: string
+        default: ""
+
+env:
+  # The one variable that separates the arms: on baseline, action-checkout
+  # skips its Set up Chalk step entirely.
+  CHALK_ON: ${{ github.event_name == 'workflow_dispatch' && inputs.leg != 'baseline' }}
+  R_LIBS_USER: /usr/local/lib/R/site-library
+  LC_ALL: en_US.UTF-8
+  NCPUS: 2
+  PGHOST: postgres
+  CI: true
+
+permissions:
+  contents: read
+  id-token: write
+
+run-name: "CI ${{ inputs.leg || 'push' }} ${{ inputs.racecar_run }}"
+
+jobs:
+  test:
+    if: github.event_name != 'issue_comment' || startsWith(github.event.comment.body, '/build')
+    strategy:
+      fail-fast: false
+      matrix:
+        R:
+          - "4.4"
+          - "4.2"
+    uses: ./.github/workflows/test.yml
+    with:
+      chalk_on: ${{ github.event_name == 'workflow_dispatch' && inputs.leg != 'baseline' }}
+      profile: ${{ inputs.profile || 'curiosity-tests-racecar' }}
+      R-version: ${{ matrix.R }}
+    secrets: inherit
+
+  check:
+    if: github.event_name != 'issue_comment' || startsWith(github.event.comment.body, '/build')
+    strategy:
+      fail-fast: false
+      matrix:
+        package: [check_base, check_modules, check_models]
+        R:
+          - "4.4"
+          - "4.2"
+    uses: ./.github/workflows/check.yml
+    with:
+      chalk_on: ${{ github.event_name == 'workflow_dispatch' && inputs.leg != 'baseline' }}
+      profile: ${{ inputs.profile || 'curiosity-tests-racecar' }}
+      R-version: ${{ matrix.R }}
+      make-grouping: ${{ matrix.package }}
+    secrets: inherit
+
+  sipnet:
+    if: github.event_name != 'issue_comment' || startsWith(github.event.comment.body, '/build')
+    strategy:
+      fail-fast: false
+      matrix:
+        R:
+          - "4.4"
+          - "4.2"
+    uses: ./.github/workflows/sipnet.yml
+    with:
+      chalk_on: ${{ github.event_name == 'workflow_dispatch' && inputs.leg != 'baseline' }}
+      profile: ${{ inputs.profile || 'curiosity-tests-racecar' }}
+      R-version: ${{ matrix.R }}
+    secrets: inherit
